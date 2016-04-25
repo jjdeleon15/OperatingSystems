@@ -1,6 +1,6 @@
 export { outch, outno, outhex, outbin, outf, outs, out, inch, inno, numbargs, 
 	       lhs, thiscall, returnto, sleep,seconds, datetime, datetime2, devctl, 
-         devctlv, strlen, random,set_kb_buffer, printShortDate,
+         devctlv, strlen, random,set_kb_buffer, printLongDate, printShortDate, 
          init, newvec, freevec, printHeap, printHeapEntry, printFreeList,
          DC_DISC_CHECK, DC_DISC_READ, DC_DISC_WRITE, DC_TAPE_CHECK, 
          DC_TAPE_READ, DC_TAPE_WRITE, DC_TAPE_REWIND, DC_TAPE_LOAD, 
@@ -362,6 +362,18 @@ let datetime2(v) be
   (selector 10 : 5) from x := t ! 2;
   v ! 1 := x; }
 
+let printLongDate(longDate) be {
+  let year, month, day, dow, hour, minute, secs;
+  year := longDate ! 0;
+  month := longDate ! 1;
+  day := longDate ! 2;
+  dow := longDate ! 3;
+  hour := longDate ! 4;
+  minute := longDate ! 5;
+  secs := longDate ! 6;
+  out("%02d/%02d/%04d %02d:%02d:%04d", month, day, year, hour, minute, secs);
+}
+
 let printShortDate(shortDate) be {
   let year, month, day, dow, hour, minute, secs, msecs;
   year := shortDate ! 0 >> 19;
@@ -369,7 +381,7 @@ let printShortDate(shortDate) be {
   day := (shortDate ! 0 bitand 0b00000000000000000111110000000000) >> 10;
   dow := (shortDate ! 0 bitand 0b00000000000000000000001110000000) >> 7;
   hour := (shortDate ! 1 bitand 0b11111000000000000000000000000000) >> 27;
-  minute := (shortDate ! 1 bitand 0b00000111111000000000000000000000) >> 22;
+  minute := (shortDate ! 1 bitand 0b00000111111000000000000000000000) >> 21;
   secs := (shortDate ! 1 bitand 0b00000000000111111000000000000000) >> 15;
   msecs := (shortDate ! 1 bitand 0b00000000000000000111111111100000) >> 5;
   out("%02d/%02d/%04d %02d:%02d:%04d", month, day, year, hour, minute, secs);
@@ -486,7 +498,6 @@ let formatHeapEntryForUse(heapEntry, heapEntrySize, dataSize) be {
   // out("DONE Formatting heapEntry: %d\n", heapEntry);
 }
 
-//Assumes freeMemPtr has just been freed
 let addToFront(freeMemPtr) be {
   freeMemPtr ! ENTRY_PREV := nil;
   freeMemPtr ! ENTRY_NEXT := HEAP_FREE_HEAD;

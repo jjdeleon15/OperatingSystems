@@ -38,7 +38,7 @@ let memsetUnitTest() be {//Dependent on strcmp
 	n := 5;
 	memset(input, '$', n);
 	if (checkArrsEquals(input, output, 20) = -1) then {
-		out("input: %s | output: %s\n", input, output);
+		out("1) input: %s | output: %s\n", input, output);
 		resultis -1;
 	}
 
@@ -49,7 +49,7 @@ let memsetUnitTest() be {//Dependent on strcmp
 	n := 20;
 	memset(input, '$', n);
 	if (checkArrsEquals(input, output, 20) = -1) then {
-		out("input: %s | output: %s\n", input, output);
+		out("2) input: %s | output: %s\n", input, output);
 		resultis -1;
 	}
 
@@ -60,7 +60,7 @@ let memsetUnitTest() be {//Dependent on strcmp
 	n := 0;
 	memset(input, '$', n);
 	if (checkArrsEquals(input, output, 20) = -1) then {
-		out("input: %s | output: %s\n", input, output);
+		out("3) input: %s | output: %s\n", input, output);
 		resultis -1;
 	}
 
@@ -82,7 +82,7 @@ let memsetoffsetUnitTest() be {//Dependent on strcmp
 	offset := 2;
 	memsetoffset(input, '$', n, offset);
 	if (checkArrsEquals(input, output, 20) = -1) then {
-		out("input: %s | output: %s\n", input, output);
+		out("1) input: %s | output: %s\n", input, output);
 		resultis -1;
 	}
 
@@ -94,7 +94,7 @@ let memsetoffsetUnitTest() be {//Dependent on strcmp
 	offset := 5;
 	memsetoffset(input, '$', n, offset);
 	if (checkArrsEquals(input, output, 20) = -1) then {
-		out("input: %s | output: %s\n", input, output);
+		out("2) input: %s | output: %s\n", input, output);
 		resultis -1;
 	}
 
@@ -106,7 +106,7 @@ let memsetoffsetUnitTest() be {//Dependent on strcmp
 	offset := 6;
 	memsetoffset(input, '$', n, offset);
 	if (checkArrsEquals(input, output, 20) = -1) then {
-		out("input: %s | output: %s\n", input, output);
+		out("3) input: %s | output: %s\n", input, output);
 		resultis -1;
 	}
 
@@ -121,7 +121,7 @@ let memcpyUnitTest() be {
 	n := 5;
 	memcpy(input, tmpStr, n);
 	if (strcmp(input, output) /= 0) then {
-		out("input: %s | output: %s\n", input, output);
+		out("1) input: %s | output: %s\n", input, output);
 		resultis -1;
 	}
 	
@@ -131,7 +131,7 @@ let memcpyUnitTest() be {
 	n := 11;
 	memcpy(input, tmpStr, n);
 	if (strcmp(input, output) /= 0) then {
-		out("input: %s | output: %s\n", input, output);
+		out("2) input: %s | output: %s\n", input, output);
 		resultis -1;
 	}
 
@@ -141,7 +141,7 @@ let memcpyUnitTest() be {
 	n := 0;
 	memcpy(input, tmpStr, n);
 	if (strcmp(input, output) /= 0) then {
-		out("input: %s | output: %s\n", input, output);
+		out("3) input: %s | output: %s\n", input, output);
 		resultis -1;
 	}
 
@@ -151,7 +151,7 @@ let memcpyUnitTest() be {
 	n := 10;
 	memcpy(input, tmpStr, n);
 	if (strcmp(input, output) /= 0) then {
-		out("input: %s | output: %s\n", input, output);
+		out("4) input: %s | output: %s\n", input, output);
 		resultis -1;
 	}
 
@@ -165,22 +165,27 @@ let strcpyUnitTest() be {
 	tmpStr := "Smile Homie";
 	output := "Smile Homie";
 	strcpy(input, tmpStr);
-	// out("input: %s | output: %s\n", input, output);
-	if (strcmp(input, output) /= 0) then resultis -1;
+	if (strcmp(input, output) /= 0) then {
+		out("1) input: %s | output: %s\n", input, output);
+		resultis -1;
+	}
 	
 	input := "Hello World";
 	tmpStr := "What the Heck?";
 	output := "What the Heck?";
 	strcpy(input, tmpStr);
-	// out("input: %s | output: %s\n", input, output);
-	if (strcmp(input, output) /= 0) then resultis -1;
-
+	if (strcmp(input, output) /= 0) then {
+		out("2) input: %s | output: %s\n", input, output);
+		resultis -1;
+	}
 	input := "What the Heck?";
 	tmpStr := "Hello World";
 	output := "Hello World";
 	strcpy(input, tmpStr);
-	// out("input: %s | output: %s\n", input, output);
-	if (strcmp(input, output) /= 0) then resultis -1;
+	if (strcmp(input, output) /= 0) then {
+		out("3) input: %s | output: %s\n", input, output);
+		resultis -1;
+	}
 
 	resultis 0;	
 }
@@ -192,22 +197,28 @@ let strcatUnitTest() be {
 	tmpStr := "World";
 	output := "Hello World";
 	strcat(input, tmpStr);
-	// out("input: %s | output: %s\n", input, output);
-	if (strcmp(input, output) /= 0) then resultis -1;
+	if (strcmp(input, output) /= 0) then {
+		out("1) input: %s | output: %s\n", input, output);
+		resultis -1;
+	}
 
 	input := "";
 	tmpStr := "World";
 	output := "World";
 	strcat(input, tmpStr);
-	// out("input: %s | output: %s\n", input, output);
-	if (strcmp(input, output) /= 0) then resultis -1;
+	if (strcmp(input, output) /= 0) then {
+		out("2) input: %s | output: %s\n", input, output);
+		resultis -1;
+	}
 
 	input := "Hello ";
 	tmpStr := "";
 	output := "Hello ";
 	strcat(input, tmpStr);
-	// out("input: %s | output: %s\n", input, output);
-	if (strcmp(input, output) /= 0) then resultis -1;
+	if (strcmp(input, output) /= 0) then {
+		out("3) input: %s | output: %s\n", input, output);
+		resultis -1;
+	}
 
 	resultis 0;
 }
@@ -218,26 +229,34 @@ let tolowercaseUnitTest() be {
 	input := 'A';
 	output := 'a';
 	tmpChar := tolowercase(input);
-	// out("input: \'%c\' | tmpChar: \'%c\' | output: \'%c\'\n", input, tmpChar, output);
-	if (tmpChar /= output) then resultis -1;
+	if (tmpChar /= output) then {
+		out("1) input: \'%c\' | tmpChar: \'%c\' | output: \'%c\'\n", input, tmpChar, output);
+		resultis -1;
+	}
 
 	input := 'Z';
 	output := 'z';
 	tmpChar := tolowercase(input);
-	// out("input: \'%c\' | tmpChar: \'%c\' | output: \'%c\'\n", input, tmpChar, output);
-	if (tmpChar /= output) then resultis -1;
+	if (tmpChar /= output) then {
+		out("2) input: \'%c\' | tmpChar: \'%c\' | output: \'%c\'\n", input, tmpChar, output);
+		resultis -1;
+	}
 
 	input := 'm';
 	output := 'm';
 	tmpChar := tolowercase(input);
-	// out("input: \'%c\' | tmpChar: \'%c\' | output: \'%c\'\n", input, tmpChar, output);
-	if (tmpChar /= output) then resultis -1;
+	if (tmpChar /= output) then {
+		out("3) input: \'%c\' | tmpChar: \'%c\' | output: \'%c\'\n", input, tmpChar, output);
+		resultis -1;
+	}
 
 	input := '[';
 	output := '[';
 	tmpChar := tolowercase(input);
-	// out("input: \'%c\' | tmpChar: \'%c\' | output: \'%c\'\n", input, tmpChar, output);
-	if (tmpChar /= output) then resultis -1;
+	if (tmpChar /= output) then {
+		out("4) input: \'%c\' | tmpChar: \'%c\' | output: \'%c\'\n", input, tmpChar, output);
+		resultis -1;
+	}
 
 	resultis 0;
 }
