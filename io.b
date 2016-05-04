@@ -1,4 +1,4 @@
-export { outch, outno, outhex, outbin, outf, outs, out, inch, inno, numbargs, 
+export { outch, outno, outhex, outbin, outf, outs, out, inch, inch2, inno, numbargs, 
 	       lhs, thiscall, returnto, sleep,seconds, datetime, datetime2, devctl, 
          devctlv, strlen, random,set_kb_buffer, printLongDate, printShortDate, 
          init, newvec, freevec, printHeap, printHeapEntry, printFreeList,
@@ -267,7 +267,7 @@ let inch() be
   buff_num := 0;
   while true do
   { let c = inch_unbuff();
-    if c = 8 then
+    if c = 8 \/ c = 127 then
     { if buff_num > 0 then
       { buff_num -:= 1;
         out("%c %c", 8, 8) }
@@ -276,6 +276,26 @@ let inch() be
     byte buff_num of buffer := c;
     unless buff_num > buff_max do buff_num +:= 1;
     if c = '\n' then resultis byte 0 of buffer } }
+
+let inch2() be
+{ if buff_num > buff_ptr then
+  { let c = byte buff_ptr of buffer;
+    buff_ptr +:= 1;
+    resultis c }
+  buff_ptr := 1;
+  buff_num := 0;
+  while true do
+  { let c = inch_unbuff();
+    if c = 8 \/ c = 127 then
+    { if buff_num > 0 then
+      { buff_num -:= 1;
+        out("%c %c", 8, 8) }
+      loop }
+    outch(c);
+    byte buff_num of buffer := c;
+    unless buff_num > buff_max do buff_num +:= 1;
+    resultis byte 0 of buffer } }
+
 
 let inno() be
 { let n = 0, c, s = 0;
