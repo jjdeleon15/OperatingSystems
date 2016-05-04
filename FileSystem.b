@@ -213,8 +213,8 @@ let printBlockFromDisc(discUnit, blockNumber) be {
 	let blkBuffer = vec(BLOCK_SIZE);
 	readBlockFromDisc(discUnit, blockNumber, blkBuffer);
 	for i = 0 to BLOCK_SIZE - 1 by 1 do {
-		out("%d | %x | %b | %c%c%c%c \n", blkBuffer ! i, blkBuffer ! i, blkBuffer ! i, byte 0 of (blkBuffer ! i),
-			byte 1 of (blkBuffer ! i), byte 2 of (blkBuffer ! i), byte 3 of (blkBuffer ! i));
+		out("%d | %x | %b | %c%c%c%c \n", blkBuffer ! i, blkBuffer ! i, blkBuffer ! i, byte 0 of (blkBuffer + i),
+			byte 1 of (blkBuffer + i), byte 2 of (blkBuffer + i), byte 3 of (blkBuffer + i));
 	}
 	out("\n\n");
 }
@@ -271,7 +271,8 @@ let printOpenFile(openFilePtr) be {
 let printFileData(openFilePtr) be {
 	test openFilePtr ! OF_DATA_BLKS = 0 then {
 		for i = OF_START_BYTE to BYTES_PER_BLOCK - 1 do {
-			outch(byte i of openFilePtr ! OF_BLK_BUFF);
+			if byte i of openFilePtr + OF_BLK_BUFF = nil then break;
+			outch(byte i of openFilePtr + OF_BLK_BUFF);
 		}
 		outch('\n');
 	} else {
@@ -970,7 +971,9 @@ let writeByte(discPtr, filePtr, input) be {
 				filePtr ! OF_BLK_OFFSET := filePtr ! OF_MOD_BYTE;//Since in first block of level 1
 			}
 		}
-		byte filePtr ! OF_BLK_OFFSET of filePtr ! OF_BLK_BUFF := input;
+		out("\nOffset: %d | BlkAddr: %d | Input: %c\n", filePtr ! OF_BLK_OFFSET, 
+				filePtr ! OF_BLK_BUFF, input);
+		byte filePtr ! OF_BLK_OFFSET of filePtr + OF_BLK_BUFF := input;
 		filePtr ! OF_BLK_OFFSET +:= 1;
 		filePtr ! OF_MOD_BYTE +:= 1;
 	} else { // if backspace was hit
@@ -1015,7 +1018,7 @@ let readByte(discPtr, filePtr) be {
 	
 	test filePtr ! OF_BLK_OFFSET < BLOCK_SIZE then { //There is data left in block
 		resChar := byte (filePtr ! OF_BLK_OFFSET) * 4 + filePtr ! OF_MOD_BYTE
-		of filePtr ! OF_BLK_BUFF;
+		of filePtr + OF_BLK_BUFF;
 	} else {  //Already read everthing from current block, must pull other
 		tmp := (OF_MOD_BYTE / BYTES_PER_BLOCK) - 1;
 		filePtr ! OF_MOD_BLOCK := filePtr ! (OF_DATA_START + tmp);
@@ -1226,13 +1229,11 @@ let start() be {
 			filePtr := discPtr ! DP_OPEN_LIST ! fileIndex;
 			out("How many bytes are you writing to the file?\n");
 			inputSize := inno();
-			out("Please write %d many bytes\n", inputSize);
 			clearBuffer(input);
 			if inputSize > BYTES_PER_BLOCK then {
 				for i = 0 to inputSize / BYTES_PER_BLOCK - 1 do {
-					for j = 0 to BYTES_PER_BLOCK - 1 do {
+					for j = 0 to BYTES_PER_BLOCK - 1 do 
 						byte j of input := inch2();
-					}
 					if fwrite(discPtr, filePtr, input, BLOCK_SIZE) /= BYTES_PER_BLOCK then {
 						out("Problem writing to file! %s\n", filePtr + OF_NAME);
 						loop;
