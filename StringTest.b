@@ -30,7 +30,6 @@ let memsetUnitTest() be {//Dependent on strcmp
 		nbytes = 80
 	}
 	let input = vec(vecSize), output = vec(vecSize), val, n;
-	
 	memset(input, nil, nbytes);
 	memset(output, nil, nbytes);
 	setArrWithStr(input, "Hello World", 12);
