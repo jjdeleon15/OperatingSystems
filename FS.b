@@ -1,5 +1,6 @@
 import "io"
 import "string"
+import "step3"
 
 manifest {//SUPER_BLOCK
 	SB_BLOCK_NUMBER = 0,
@@ -163,9 +164,26 @@ manifest {//FILE * or OPEN_FILE(OF)
 	delchar = 127,
 	bspace = '\b'
 }
+// should increase heapSize
+manifest { heapSize = 8192, execSize = 2000, EXEC_MAX_BLOCK_SIZE = 50,
+	   USER_STACK_SIZE = 1000}
 
-manifest { heapSize = 8192, execSize = 2000, EXEC_MAX_BLOCK_SIZE = 50}
-static { heap = vec(heapSize), execBuffer = vec(execSize) }
+manifest {// the PCB manifest
+	PCB_FLAGS = 0, PCB_INTCODE = 1, PCB_INTADDR = 2, PCB_INTX = 3, PCB_PC = 4,
+  	PCB_FP = 5, PCB_SP = 6, PCB_R12 = 7, PCB_R11 = 8, PCB_R10 = 9, PCB_R9 = 10,
+  	PCB_R8 = 11, PCB_R7 = 12, PCB_R6 = 13, PCB_R5 = 14, PCB_R4 = 15,
+  	PCB_R3 = 16, PCB_R2 = 17, PCB_R1 = 18, PCB_R0 = 19, PCB_STATE = 20,
+  	SIZEOF_PCB = 21
+}
+
+manifest
+{ iv_none = 0,        iv_memory = 1,      iv_pagefault = 2,   iv_unimpop = 3,
+  iv_halt = 4,        iv_divzero = 5,     iv_unwrop = 6,      iv_timer = 7,
+  iv_privop = 8,      iv_keybd = 9,       iv_badcall = 10,    iv_pagepriv = 11,
+  iv_debug = 12,      iv_intrfault = 13 }
+
+static { heap = vec(heapSize), execBuffer = vec(execSize), execBuffer2 = vec(execSize) }
+// has 2 more globals, can get changed to make in the function and freevec it after
 
 //Disc Utilities
 let clearBuffer(blkBuffer) be {
@@ -1128,7 +1146,6 @@ let execFile(discPtr, filePtr, fileName) be { // can improve w filePtr usage
 		r := devctl(DC_DISC_READ, 1, blocksUsedList ! counter, 1, execBuffer + pos);
 		pos +:= r * 128; // in blocks
 		counter +:= 1;
-		out("Counter is now %d \n", counter);
 	} 
 
 	freevec(blocksUsedList);
@@ -1141,9 +1158,102 @@ let execFile(discPtr, filePtr, fileName) be { // can improve w filePtr usage
 		return;
 	}
 	closeFileExec(discPtr,openFilePtr,fileIndex); // assuming proper notation
-	out("Run time");
+	out("Run time\n");
   	execBuffer(); // runs the execBuffer
   	out("Done with file!  This should never show.\n"); 
+}
+
+// for step 3
+let concurrentRun(discPtr, filePtr, fileName, fileName2) be // done r.n. with time based files
+{
+	let r = -1, pos = 0, counter = 0, openFilePtr, openFilePtr2;
+	let blocksUsedList = newvec(EXEC_MAX_BLOCK_SIZE); // last one will be -1
+	let fileIndex;
+	let pcb_1 = newvec(SIZEOF_PCB);
+	let pcb_2 = newvec(SIZEOF_PCB);
+	let user_stack_1 = newvec(USER_STACK_SIZE);
+	let user_stack_2 = newvec(USER_STACK_SIZE);
+	let proc_table = newvec(3);
+	let ivec = newvec(20), x_inch;
+
+	vecset(execBuffer, nil, execSize); // clears execBuffer
+	vecset(execBuffer2, nil, execSize); // clears execBuffer2, for second executable
+
+	openFilePtr := openFileExec(discPtr, fileName);
+	openFilePtr2 := openFileExec(discPtr, fileName2); // clears both exec files
+	
+	veccpy(blocksUsedList, openFilePtr + OF_BLK_OFFSET, EXEC_MAX_BLOCK_SIZE); // populates blockUsedList
+
+	until blocksUsedList ! counter = -1 \/ counter = EXEC_MAX_BLOCK_SIZE do{
+		r := devctl(DC_DISC_READ, 1, blocksUsedList ! counter, 1, execBuffer + pos);
+		pos +:= r * 128; // in blocks
+		counter +:= 1;
+		out("Counter is now %d \n", counter);
+	} 
+
+	vecset(blocksUsedList, nil, EXEC_MAX_BLOCK_SIZE); // resets the blocksUsedList for use in populating next vector
+
+	fileIndex := findInOpenList(discPtr ! DP_OPEN_LIST, fileName);	
+
+	if fileIndex = -1 then {
+	   	out("File %s not open, so problem - Investigate!\n", fileName);
+		return;
+	}
+	closeFileExec(discPtr,openFilePtr,fileIndex); // closing the first file
+
+	out("Executable %s properly loaded.\n", fileName);
+	out("Time for Executable %s.\n", fileName2);
+
+	veccpy(blocksUsedList, openFilePtr + OF_BLK_OFFSET, EXEC_MAX_BLOCK_SIZE); // populates blockUsedList
+
+	pos := 0;   counter := 0; // resets both values 
+	until blocksUsedList ! counter = -1 \/ counter = EXEC_MAX_BLOCK_SIZE do{
+		r := devctl(DC_DISC_READ, 1, blocksUsedList ! counter, 1, execBuffer2 + pos);
+		pos +:= r * 128; // in blocks
+		counter +:= 1;
+		out("Counter is now %d \n", counter);
+	} 
+
+	fileIndex := findInOpenList(discPtr ! DP_OPEN_LIST, fileName2);	
+
+	if fileIndex = -1 then {
+	   	out("File %s not open, so problem - Investigate!\n", fileName);
+		return;
+	}
+	closeFileExec(discPtr,openFilePtr2,fileIndex); // closing the second file
+
+	freevec(blocksUsedList);
+	out("Execution time of Programs \n\n");
+
+  	proc_table ! 0 := nil;
+  	proc_table ! 1 := pcb_1;
+  	proc_table ! 2 := pcb_2;	// done assuming only two procs will occur simult.
+	
+	for i = 0 to 19 do
+		ivec ! i := nil;
+	ivec ! iv_timer := timer_handler;
+	ivec ! iv_keybd := keyboard_handler;
+
+	enable_ints(ivec);
+	x_inch := minch;
+
+	make_pcb(pcb_1, execBuffer, user_stack_1, 101);
+	make_pcb(pcb_2, execBuffer2, user_stack_2, 10101);
+	// don't really get why 101 or 10101 but zzz
+
+	set_timer(50000);
+	start_process(1);
+	out("chaos\n");
+
+//	execBuffer(); // runs the execBuffer
+//	execBuffer2();
+
+	freevec(user_stack_1);
+	freevec(user_stack_2);
+	freevec(pcb_1);
+	freevec(pcb_2);
+	freevec(ivec);
+  	out("Done with the two processes.\n"); 	
 }
 
 let checkMountedDisc(discPtr) be {
@@ -1186,13 +1296,14 @@ static {
 	printRD = "printRD",
 	printFL = "printFL",
 	runExec = "runE",
+	runExec2 = "runE2",
 	setUpExec = "setUpE"
 }
 let start() be {
 	let discPtr = nil, input = vec(BLOCK_SIZE), discUnit, blkNumber, 
 	fileEntry, inputSize = 0, fileIndex, filePtr, inputOffset,
 	discName = vec(SB_NAME_SIZE), fileName = vec(FILE_NAME_SIZE),
-	execName = vec(EXEC_NAME_SIZE);
+	execName = vec(EXEC_NAME_SIZE), fileName2 = vec(FILE_NAME_SIZE);
 
 	init(heap, heapSize);
 	out("You have started the Combined Operating System (/^_^)/ ^ _|_|_ \n\n");
@@ -1212,6 +1323,7 @@ let start() be {
 	out("\tprintB - to print the values in a given block\n"); // printBlock
 	out("\tsetUpE - to set up an executable in the same directory\n");
 	out("\trunE - to run an executable\n"); // step 1 of plan
+	out("\trunE2 - to run 2 executables\n"); // step 3 of plan
 	out("\texit - to exit file system\n");
 	while true do {
 		out("Enter a command: ");
@@ -1391,6 +1503,36 @@ let start() be {
 			filePtr := tempPtr ! FE_FILE_BLK;
 			out("filePtr value is %d \n", filePtr);
 			execFile(discPtr, filePtr, fileName);
+		} else test strcasecmp(input, runExec2) = 0 then {
+			let tempPtr;
+			
+			if checkMountedDisc(discPtr) /= mounted then loop;
+			out("Which 1st file do you want to execute?\n");
+			getline(fileName, FILE_NAME_BYTES);
+
+			fileEntry := findInRootDir(discPtr, fileName);
+			if fileEntry = nil then {
+				out("File 1 does not exist.\n");
+				out("Please set up the executable first.\n");
+				freevec(fileEntry);
+				loop;
+			}
+
+			out("Which 2nd file do you want to execute?\n");
+			getline(fileName2, FILE_NAME_BYTES);
+
+			fileEntry := findInRootDir(discPtr, fileName2);
+			if fileEntry = nil then {
+				out("File 2 does not exist.\n");
+				out("Please set up the executable first.\n");
+				freevec(fileEntry);
+				loop;
+			}
+
+			tempPtr := findInRootDir(discPtr, fileName);
+			filePtr := tempPtr ! FE_FILE_BLK;
+
+			concurrentRun(discPtr, filePtr, fileName, fileName2);
 		} else if strcasecmp(input, ex) = 0 then {
 			if discPtr /= nil then dismountDisc(discPtr);
 			break;
