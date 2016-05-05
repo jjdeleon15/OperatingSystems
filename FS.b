@@ -728,7 +728,19 @@ let closeFile(discPtr, openFileIndex) be {
 	openFilePtr ! OF_MOD_BLOCK := nil;
 	openFilePtr ! OF_BLK_BUFF := nil;
 	openFilePtr ! OF_BLK_OFFSET := nil;
-	
+	freevec(openFilePtr);
+	removeFromOpenList(discPtr ! DP_OPEN_LIST, openFileIndex);
+}
+
+let closeFileExec(discPtr, filePtr, openFileIndex) be {
+	let openFilePtr = discPtr ! DP_OPEN_LIST ! openFileIndex, 
+	buff = openFilePtr ! OF_BLK_BUFF, r;
+	if buff /= openFilePtr then {
+		writeBlockToDisc(discPtr ! DP_DISC_UNIT, openFilePtr ! OF_MOD_BLOCK, 
+			openFilePtr ! OF_BLK_BUFF);//Writing back to disc
+		freevec(buff);
+	}
+	r := devctl(DC_DISC_WRITE, 1, filePtr ! OF_FILE_BLK, 1, filePtr); // will write filePtr to memory without fail
 	freevec(openFilePtr);
 	removeFromOpenList(discPtr ! DP_OPEN_LIST, openFileIndex);
 }
@@ -843,14 +855,12 @@ let openFileExec(discPtr, fileName) be {
 
 	test openFilePtr ! OF_DATA_BLKS > 0 then {		
 		openFilePtr ! OF_MOD_BLOCK := openFilePtr ! OF_DATA_START;
-		openFilePtr ! OF_BLK_OFFSET := nil;
 		openFilePtr ! OF_MOD_BYTE := nil;
 		openFilePtr ! OF_BLK_BUFF := newvec(BLOCK_SIZE);
 		readBlockFromDisc(discPtr ! DP_DISC_UNIT, openFilePtr ! OF_MOD_BLOCK, openFilePtr ! OF_BLK_BUFF);
 	} else {
 		openFilePtr ! OF_BLK_BUFF := openFilePtr;
 		openFilePtr ! OF_MOD_BYTE := nil;
-		openFilePtr ! OF_BLK_OFFSET := openFilePtr ! OF_MOD_BYTE + OF_START_BYTE;
 		openFilePtr ! OF_MOD_BLOCK := openFilePtr ! OF_FILE_BLK;
 	}
 	addToOpenList(discPtr, openFilePtr);
@@ -1086,71 +1096,54 @@ let readFromPutty(discPtr, execName, fileName) be {
 	fileIndex := findInOpenList(discPtr ! DP_OPEN_LIST, fileName);
 
 	if fileIndex = -1 then {
-	   	out("File %s not open, so big problems!  Investigate!\n", fileName);
+	   	out("File %s not open, so problem - Investigate!\n", fileName);
 		freevec(file_holder_buff);
 		freevec(blocksUsedList);
 		return;
 	}
 	filePtr := discPtr ! DP_OPEN_LIST ! fileIndex;
 
-	for i = 0 to counter do
-	{
-		out("%d ", blocksUsedList ! i);
-	}
-	out("done printing out blocksUsedList before veccpy \n");
-
 	veccpy(filePtr + OF_BLK_OFFSET, blocksUsedList, EXEC_MAX_BLOCK_SIZE);
 
-	for i = 0 to counter do
-	{
-		out("%d ", filePtr ! (OF_BLK_OFFSET + i));
-	}
-	out("done printing out what should be blocksUSedList (stored in filePtr) after veccpy \n");
-	
-	closeFile(discPtr, fileIndex); // assuming proper notation
+	closeFileExec(discPtr,filePtr,fileIndex); // assuming proper notation
 
 	freevec(file_holder_buff);
 	freevec(blocksUsedList);
 
-	for i = 0 to counter do
-	{
-		out("%d ", filePtr ! (OF_BLK_OFFSET + i));
-	}
-	out("done printing out what should be three after freevecs \n");
-
 	out("File %s read onto OS with name %s.\n", execName, fileName);
 }
 
-let execFile(discPtr, filePtr, fileName) be {
+let execFile(discPtr, filePtr, fileName) be { // can improve w filePtr usage
 	let r = -1, pos = 0, counter = 0, openFilePtr;
 	let blocksUsedList = newvec(EXEC_MAX_BLOCK_SIZE); // last one will be -1
+	let fileIndex;
 
 	vecset(execBuffer, nil, execSize); // clears execBuffer
 
-
 	openFilePtr := openFileExec(discPtr, fileName);
 	
-	veccpy(blocksUsedList, filePtr + OF_BLK_OFFSET, EXEC_MAX_BLOCK_SIZE); // populates blockUsedList
+	veccpy(blocksUsedList, openFilePtr + OF_BLK_OFFSET, EXEC_MAX_BLOCK_SIZE); // populates blockUsedList
 
-	for i = 0 to 15 do
-	{
-		out("%d ", blocksUsedList ! i);
-	}
-	out("done printing out blocksUsedList after veccpy \n");
-
-	until blocksUsedList ! counter = -1 \/ counter = 50 /\ r = 0 do{
+	until blocksUsedList ! counter = -1 \/ counter = EXEC_MAX_BLOCK_SIZE do{
 		r := devctl(DC_DISC_READ, 1, blocksUsedList ! counter, 1, execBuffer + pos);
-		out("r is %d \n", r);
 		pos +:= r * 128; // in blocks
-		out("%d is the value of blocksUsedList ! counter \n", blocksUsedList ! counter);
-		out("pos is now %d \n", pos);
 		counter +:= 1;
-		out("counter is now %d \n", counter);
+		out("Counter is now %d \n", counter);
+	} 
+
+	freevec(blocksUsedList);
+	out("Execution time of Program\n\n");
+
+	fileIndex := findInOpenList(discPtr ! DP_OPEN_LIST, fileName);	
+
+	if fileIndex = -1 then {
+	   	out("File %s not open, so problem - Investigate!\n", fileName);
+		return;
 	}
-	out("Execution time\n");
-	
+	closeFileExec(discPtr,openFilePtr,fileIndex); // assuming proper notation
+	out("Run time");
   	execBuffer(); // runs the execBuffer
-  	out("Done with file!  This should never show.\n") 
+  	out("Done with file!  This should never show.\n"); 
 }
 
 let checkMountedDisc(discPtr) be {
