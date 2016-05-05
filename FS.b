@@ -163,7 +163,8 @@ manifest {//FILE * or OPEN_FILE(OF)
 	delchar = 127,
 	bspace = '\b'
 }
-manifest { heapSize = 8192, execSize = 2000}
+
+manifest { heapSize = 8192, execSize = 2000, EXEC_MAX_BLOCK_SIZE = 50}
 static { heap = vec(heapSize), execBuffer = vec(execSize) }
 
 //Disc Utilities
@@ -255,6 +256,7 @@ let printFileEntry(fileEntry) be {
 	out("\n");
 }
 let printOpenFile(openFilePtr) be {
+	//TODO
 	let capacity = openFilePtr ! OF_DATA_BLKS * BYTES_PER_BLOCK;
 	if capacity = 0 then capacity := (BLOCK_SIZE - OF_SIZE) * 4;
 	out("FileName: %s | Last Modified: ", openFilePtr + OF_NAME);
@@ -601,7 +603,6 @@ let getLevel(filePtr) be {
 	resultis (filePtr ! OF_LEVEL) bitand GETLVL;
 }
 
-
 let createNewFile(discPtr, fileName) be {
 	let fileBlockNum, rootDirSlot, fileBlkBuff = vec(BLOCK_SIZE),
 		fileEntry = newvec(FE_SIZE), rootDir = discPtr ! DP_ROOT_DIR;
@@ -813,7 +814,39 @@ let openFile(discPtr, fileName, function) be {
 		openFilePtr ! OF_BLK_OFFSET := openFilePtr ! OF_MOD_BYTE + OF_START_BYTE;
 		openFilePtr ! OF_BLK_BUFF := openFilePtr;
 	}
-	out("File Offset: %d | File_MOD_BYTE: %d\n", openFilePtr ! OF_BLK_OFFSET, openFilePtr ! OF_MOD_BYTE);
+	// out("File Offset: %d | File_MOD_BYTE: %d\n", openFilePtr ! OF_BLK_OFFSET, openFilePtr ! OF_MOD_BYTE);
+	addToOpenList(discPtr, openFilePtr);
+	resultis openFilePtr;
+}
+
+let openFileExec(discPtr, fileName) be {
+	let openFilePtr, fileEntry = nil;
+	if (findInOpenList(discPtr ! DP_OPEN_LIST, fileName) /= -1) then {
+		out("File \'%s\' is already open, shouldn't happen!\n", fileName);
+		return;
+	}
+	fileEntry := findInRootDir(discPtr, fileName);
+	if fileEntry = nil then {
+		out("This should never happen...Inspect!\n");
+		return;
+	}
+
+	openFilePtr := newvec(BLOCK_SIZE);
+	readBlockFromDisc(discPtr ! DP_DISC_UNIT, fileEntry ! FE_FILE_BLK, openFilePtr);
+	freevec(fileEntry);
+
+	test openFilePtr ! OF_DATA_BLKS > 0 then {		
+		openFilePtr ! OF_MOD_BLOCK := openFilePtr ! OF_DATA_START;
+		openFilePtr ! OF_BLK_OFFSET := nil;
+		openFilePtr ! OF_MOD_BYTE := nil;
+		openFilePtr ! OF_BLK_BUFF := newvec(BLOCK_SIZE);
+		readBlockFromDisc(discPtr ! DP_DISC_UNIT, openFilePtr ! OF_MOD_BLOCK, openFilePtr ! OF_BLK_BUFF);
+	} else {
+		openFilePtr ! OF_BLK_BUFF := openFilePtr;
+		openFilePtr ! OF_MOD_BYTE := nil;
+		openFilePtr ! OF_BLK_OFFSET := openFilePtr ! OF_MOD_BYTE + OF_START_BYTE;
+		openFilePtr ! OF_MOD_BLOCK := openFilePtr ! OF_FILE_BLK;
+	}
 	addToOpenList(discPtr, openFilePtr);
 	resultis openFilePtr;
 }
@@ -1014,34 +1047,101 @@ let fread(discPtr, filePtr, buffer, nbytes) be {
 	resultis i;
 }
 
-let execFile(discPtr, filePtr, execName) be {
-	let file_holder_buff = newvec(512), r, pos = 0;  // pos to be used for execBuffer  
+let readFromPutty(discPtr, execName, fileName) be {
+	let file_holder_buff = newvec(512), r, nextFreeBlock, fileEntry, openfilePtr = nil;
+	let blocksUsedList = newvec(EXEC_MAX_BLOCK_SIZE); 
+	let counter = 0, filePtr, fileIndex; 	
+
+	fileEntry := createNewFile(discPtr, fileName); // Julian to set flag for Executable
+	
+	r := devctl(DC_TAPE_LOAD, 1, execName, 'R');
+	if r < 0 then
+	{ out("error %d for load\n", r);
+	finish;	}
+
+	{ r := devctl(DC_TAPE_READ, 1, file_holder_buff); // reads it into the file_holder_buff
+	  nextFreeBlock := getFreeBlock(discPtr);
+	  blocksUsedList ! counter := nextFreeBlock;
+	  out("Got block %d \n", blocksUsedList ! counter);
+	  counter +:= 1;
+	  devctl(DC_DISC_WRITE, 1, nextFreeBlock, 1, file_holder_buff);
+	} repeatuntil r < 512;
+
+	blocksUsedList ! counter := -1; // sets last one to -1 
+
+	out("Done, file length is %d blocks\n", counter);
+
+	devctl(DC_TAPE_UNLOAD, 1); //unloads the tape
+
+	openFilePtr := openFileExec(discPtr, fileName);
+	fileIndex := findInOpenList(discPtr ! DP_OPEN_LIST, fileName);
+
+	if fileIndex = -1 then {
+	   	out("File %s not open, so big problems!  Investigate!\n", fileName);
+		freevec(file_holder_buff);
+		freevec(blocksUsedList);
+		return;
+	}
+	filePtr := discPtr ! DP_OPEN_LIST ! fileIndex;
+
+	for i = 0 to counter do
+	{
+		out("%d ", blocksUsedList ! i);
+	}
+	out("done printing out blocksUsedList before veccpy \n");
+
+	veccpy(filePtr + OF_BLK_OFFSET, blocksUsedList, EXEC_MAX_BLOCK_SIZE);
+
+	for i = 0 to counter do
+	{
+		out("%d ", filePtr ! (OF_BLK_OFFSET + i));
+	}
+	out("done printing out what should be blocksUSedList (stored in filePtr) after veccpy \n");
+	
+	closeFile(discPtr, fileIndex); // assuming proper notation
+
+	freevec(file_holder_buff);
+	freevec(blocksUsedList);
+
+	for i = 0 to counter do
+	{
+		out("%d ", filePtr ! (OF_BLK_OFFSET + i));
+	}
+	out("done printing out what should be three after freevecs \n");
+
+	out("File %s read onto OS with name %s.\n", execName, fileName);
+}
+
+let execFile(discPtr, filePtr, fileName) be {
+	let r = -1, pos = 0, counter = 0, openFilePtr;
+	let blocksUsedList = newvec(EXEC_MAX_BLOCK_SIZE); // last one will be -1
 
 	vecset(execBuffer, nil, execSize); // clears execBuffer
 
-	 r := devctl(DC_TAPE_LOAD, 1, execName, 'R'); // works with collatz.exe
-  	if r < 0 then
-  	{ out("error %d for load\n", r);
-    	finish }
 
-  	{ r := devctl(DC_TAPE_READ, 1, execBuffer + pos);
-    	out("read a block of %d\n", r);
+	openFilePtr := openFileExec(discPtr, fileName);
+	
+	veccpy(blocksUsedList, filePtr + OF_BLK_OFFSET, EXEC_MAX_BLOCK_SIZE); // populates blockUsedList
 
-	for i = pos to pos + r / 4 by 1 do // should transfer execBuffer's newest content add into file_holder_buff
+	for i = 0 to 15 do
 	{
-		file_holder_buff ! (i - pos) := execBuffer ! i;
+		out("%d ", blocksUsedList ! i);
 	}
-	// need to write file_holder_buff to a block
+	out("done printing out blocksUsedList after veccpy \n");
 
-    	pos +:= r / 4;
-    	} repeatuntil r < 512;
-
-  	out("done, %d words read \n", pos);
-  	devctl(DC_TAPE_UNLOAD, 1); // unloads or empties the tape
-
-	freevec(file_holder_buff); 
+	until blocksUsedList ! counter = -1 \/ counter = 50 /\ r = 0 do{
+		r := devctl(DC_DISC_READ, 1, blocksUsedList ! counter, 1, execBuffer + pos);
+		out("r is %d \n", r);
+		pos +:= r * 128; // in blocks
+		out("%d is the value of blocksUsedList ! counter \n", blocksUsedList ! counter);
+		out("pos is now %d \n", pos);
+		counter +:= 1;
+		out("counter is now %d \n", counter);
+	}
+	out("Execution time\n");
+	
   	execBuffer(); // runs the execBuffer
-  	out("Done with file!  Unsure if it will show.\n") 
+  	out("Done with file!  This should never show.\n") 
 }
 
 let checkMountedDisc(discPtr) be {
@@ -1083,7 +1183,8 @@ static {
 	printSB = "printSB",
 	printRD = "printRD",
 	printFL = "printFL",
-	runExec = "runE"
+	runExec = "runE",
+	setUpExec = "setUpE"
 }
 let start() be {
 	let discPtr = nil, input = vec(BLOCK_SIZE), discUnit, blkNumber, 
@@ -1109,7 +1210,8 @@ let start() be {
 	out("\tread - to read from a open file\n");
 	out("\tprintHeap - to print the current heap data\n");
 	out("\tprintB - to print the values in a given block\n"); // printBlock
-	out("\trunE - to run an executable in the same directory\n"); // step 1 of plan
+	out("\tsetUpE - to set up an executable in the same directory\n");
+	out("\trunE - to run an executable\n"); // step 1 of plan
 	out("\texit - to exit file system\n");
 	while true do {
 		out("Enter a command: ");
@@ -1194,6 +1296,7 @@ let start() be {
 			filePtr := discPtr ! DP_OPEN_LIST ! fileIndex;
 			out("How many bytes are you writing to the file?\n");
 			inputSize := inno();
+<<<<<<< HEAD
 			clearBuffer(input);
 			if inputSize > BYTES_PER_BLOCK then {
 				for i = 0 to (inputSize / BYTES_PER_BLOCK) - 1 do {
@@ -1212,6 +1315,7 @@ let start() be {
 				inputOffset +:= 1;
 				if (inputOffset > inputSize) then break;
 			}
+<<<<<<< HEAD
 			if fwrite(discPtr, filePtr, input, inputOffset) /= inputOffset then {
 				out("Problem writing input rem block to file! %s\n", filePtr + OF_NAME);
 				loop;
@@ -1231,7 +1335,7 @@ let start() be {
 			out("How many bytes are you read from the file?\n");
 			inputSize := inno();
 			fread(discPtr, filePtr, buffer, inputSize);
-		} else test strcasecmp(input, runExec) = 0 then {
+		} else test strcasecmp(input, setUpExec) = 0 then {
 			if checkMountedDisc(discPtr) /= mounted then loop;
 			out("What file do you want the executable written to?\n");
 			getline(fileName, FILE_NAME_BYTES);
@@ -1239,16 +1343,42 @@ let start() be {
 			// now need to check if file exists and, if it doesn't, make it
 			fileEntry := findInRootDir(discPtr, fileName);
 			fileIndex := findInOpenList(discPtr ! DP_OPEN_LIST, fileName);
-			if fileEntry = nil \/ fileIndex = -1 then {
+			test fileEntry = nil \/ fileIndex = -1 then {
 				out("File does not exist or is not open. Time to make it.\n");
-			//	freevec(fileEntry);
-			//	loop;
 			}
-			filePtr := discPtr ! DP_OPEN_LIST ! fileIndex;
+			else
+			{
+				out("File does exist, need to name it something that does not exist.\n");
+				freevec(fileEntry);
+				loop;
+			}
 
 			out("Input executable name (include .exe):\n");
 			getline(execName, EXEC_NAME_BYTES);
-			execFile(discPtr, filePtr, execName);
+
+			readFromPutty(discPtr, execName, fileName);			
+		} else test strcasecmp(input, runExec) = 0 then {
+			let tempPtr;
+			
+			if checkMountedDisc(discPtr) /= mounted then loop;
+			out("Which file do you want to execute?\n");
+			getline(fileName, FILE_NAME_BYTES);
+
+			// now need to check if file exists - if not, cancel
+			fileEntry := findInRootDir(discPtr, fileName);
+			if fileEntry = nil then {
+				out("File does not exist.\n");
+				out("Please set up the executable first.\n");
+				freevec(fileEntry);
+				loop;
+			}
+
+			tempPtr := findInRootDir(discPtr, fileName);
+			out("tempPtr value is %d \n", tempPtr);
+
+			filePtr := tempPtr ! FE_FILE_BLK;
+			out("filePtr value is %d \n", filePtr);
+			execFile(discPtr, filePtr, fileName);
 		} else if strcasecmp(input, ex) = 0 then {
 			if discPtr /= nil then dismountDisc(discPtr);
 			break;
