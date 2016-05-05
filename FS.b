@@ -1296,7 +1296,6 @@ let start() be {
 			filePtr := discPtr ! DP_OPEN_LIST ! fileIndex;
 			out("How many bytes are you writing to the file?\n");
 			inputSize := inno();
-<<<<<<< HEAD
 			clearBuffer(input);
 			if inputSize > BYTES_PER_BLOCK then {
 				for i = 0 to (inputSize / BYTES_PER_BLOCK) - 1 do {
@@ -1315,7 +1314,6 @@ let start() be {
 				inputOffset +:= 1;
 				if (inputOffset > inputSize) then break;
 			}
-<<<<<<< HEAD
 			if fwrite(discPtr, filePtr, input, inputOffset) /= inputOffset then {
 				out("Problem writing input rem block to file! %s\n", filePtr + OF_NAME);
 				loop;
