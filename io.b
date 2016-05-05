@@ -580,6 +580,7 @@ let myNewVec(size) be {
       freeMemPtr ! ENTRY_NEXT ! ENTRY_PREV := freeMemPtr
     }
   }
+  forwardPrevToNext(bestMemBlk);
   formatHeapEntryForUse(bestMemBlk, newEntrySize, size);
   HEAP_SIZE +:= newEntrySize;
   test size > 0 then {
@@ -596,7 +597,7 @@ let myFreeVec(entryPtr) be {
   freeMemPtr := entryPtr - ENTRY_FORMAT_SPACE; 
   if freeMemPtr ! ENTRY_STATUS /= FREE /\ 
     freeMemPtr ! ENTRY_STATUS /= USED then {
-      if (entryPtr ! -1) /= 0 then {
+      if (entryPtr ! 0) /= 0 then {
         printHeap(HEAP_PTR, HEAP_CAP);
         out("Invalid ptr passed: %d\n", entryPtr);
         finish
@@ -646,7 +647,6 @@ let myFreeVec(entryPtr) be {
     appendToTopBlock(freeMemPtr, entryAfter);
     if (aboveFree = F) then addToFront(freeMemPtr); 
   }
-  // printHeap(HEAP_PTR, HEAP_CAP);
 }
 
 let myInit(heapPtr, size) be {

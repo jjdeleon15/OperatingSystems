@@ -156,7 +156,7 @@ manifest {//FILE * or OPEN_FILE(OF)
 	OF_BLK_BUFF = 14,					//Block Buffer for file
 	OF_BLK_OFFSET = 15,					//Current byte in buffer
 	
-	OF_SIZE = 15,
+	OF_SIZE = OF_BLK_OFFSET + 1,
 	OF_SIZE_BYTES = OF_SIZE * 4,
 	OF_DATA_START = OF_SIZE,  // was OF_SIZE * 4
 	OF_START_BYTE = OF_DATA_START * 4;
@@ -177,7 +177,7 @@ let copyBlock(dest, src) be {
 
 let printBlockBuffer(blkBuffer) be {
 	for i = 0 to BLOCK_SIZE - 1 by 1 do {
-		out("%d\n", blkBuffer ! i);
+		out("%d | %x | %b\n", blkBuffer ! i, blkBuffer ! i, blkBuffer ! i);
 	}
 	out("\n\n");
 }
@@ -296,7 +296,6 @@ let createSuperBlockMD(discUnit, discNameFixed, discSize, tmpSuperBlock) be {
 }
 
 let createRootDirMD(rootNameFixed, discUnit, tmpRootDirMD) be {
-	let modDate = vec(LONG_DATE_SIZE), createDate = vec(LONG_DATE_SIZE);
 	veccpy(tmpRootDirMD + RD_NAME, rootNameFixed, RD_NAME_SIZE);
 	datetime(seconds(), tmpRootDirMD + RD_DATE_MOD);
 	tmpRootDirMD ! RD_ENTRIES := 0;
@@ -385,102 +384,72 @@ let shiftBlockBufferDown(n, blockBuffer) be {
 	shiftArrDown(n, blockBuffer, BLOCK_SIZE);
 }
 
-let popPtrBlock(freeList, nBlocks, ptrBlocks) be {
-	shiftBlockBufferUp(1, freeList);
-	freeList ! FL_FREE_BLKS := nBlocks;
-	freeList ! FL_PTR_BLKS := ptrBlocks;
-}
-
 let addFreeBlock(discPtr, freedBlock) be {
-	let freeList = discPtr ! DP_FREE_LIST, ptrBlock = vec(BLOCK_SIZE), ptrBlockNum, slot, 
-		discUnit = discPtr ! DP_DISC_UNIT;
-	for i = 0 to freeList ! FL_PTR_BLKS - 1 do {
-		ptrBlockNum := freeList ! (FL_DATA + i);
-		readBlockFromDisc(discUnit, ptrBlockNum, ptrBlock);
-		if ptrBlock ! (BLOCK_SIZE - 1) = nil then {//Space for freed block
-			slot := BLOCK_SIZE - 1;
-			until ptrBlock ! (slot - 1) /= nil do {
-				slot -:= 1;//Until previous is not nil
-				if slot = 0 then break;
+	let freeList = discPtr ! DP_FREE_LIST, blockBuffer = discPtr ! DP_BLOCK_BUFF;
+	out("We tried to add free block %d back\n", freedBlock);
+	test freeList ! FL_PTR_BLKS > 0 then {
+		for i = FL_DATA to (freeList ! FL_PTR_BLKS + FL_DATA - 1) do {
+			readBlockFromDisc(discPtr ! DP_DISC_UNIT, freeList ! i, blockBuffer);
+			if (blockBuffer ! (BLOCK_SIZE - 1)) = nil then {//Room to add here
+				for n = 0 to BLOCK_SIZE - 1 do {
+					if blockBuffer ! n = nil then {
+						blockBuffer ! n := freedBlock;
+						break;
+					}
+				}//Added to that ptr block
+				writeBlockToDisc(discPtr ! DP_DISC_UNIT, freeList ! i, blockBuffer);
+				freeList ! FL_FREE_BLKS +:= 1;
+				return;
 			}
-			out("Found slot %d in block %d\n", slot, ptrBlockNum);
-			ptrBlock ! slot := freedBlock;
-			writeBlockToDisc(discUnit, ptrBlockNum, ptrBlock);
-			freeList ! FL_FREE_BLKS +:= 1;
-			out("Added new free block %d to blk :%d\n", freedBlock, ptrBlock);
-			return;
 		}
-	}
-	test freeList ! FL_FREE_BLKS > 0 then {
-		if freeList ! FL_FREE_BLKS = (BLOCK_SIZE - FL_DATA) then {
-			out("Free list is somehow full, something is wrong!\n");
-			finish;
+	} else {
+		for i = FL_DATA to BLOCK_SIZE - 1 do {
+			if freeList ! i = nil then {
+				freeList ! i := freedBlock;
+				freeList ! FL_FREE_BLKS +:= 1;
+				return;
+			}
 		}
-		freeList ! (FL_DATA + freeList ! FL_PTR_BLKS) := freedBlock;
-		clearBuffer(ptrBlock);
-		writeBlockToDisc(discUnit, freedBlock, ptrBlock);
-		freeList ! FL_PTR_BLKS +:= 1;
-		out("Made new ptr block\n");
-	} else {//Single block
-		test freeList ! FL_FREE_BLKS = (BLOCK_SIZE - FL_DATA) then {//Jump to level 2
-			veccpy(ptrBlock, freeList + FL_DATA, BLOCK_SIZE - FL_DATA);
-			writeBlockToDisc(discUnit, freedBlock, ptrBlock);
-			clearBuffer(ptrBlock);
-			ptrBlock ! 0 := freedBlock;
-			veccpy(freeList + FL_DATA, ptrBlock, BLOCK_SIZE - FL_DATA);
-			freeList ! FL_PTR_BLKS := 1;
-			out("Made first ptr block\n");
-		} else {
-			freeList ! (FL_DATA + freeList ! FL_FREE_BLKS) := freedBlock;
-			freeList ! FL_FREE_BLKS +:= 1;
-			out("Added new free block %d to blk :%d\n", freedBlock, FL_BLOCK_NUMBER);
-		}
+		out("Going from level 0 to level 1\n");
+		clearBuffer(blockBuffer);
+		veccpy(blockBuffer, freeList + 3, BLOCK_SIZE - 3);
+		blockBuffer ! (BLOCK_SIZE - 3) := freedBlock;
+		vecset(freeList + 3, nil, BLOCK_SIZE - 3);
+		freeList ! FL_FREE_BLKS +:= 1;
+		freeList ! FL_PTR_BLKS := 1;
 	}
 }
 
 let getFreeBlock(discPtr) be {
-	let freeList = discPtr ! DP_FREE_LIST, freeBlk, ptrBlock = vec(BLOCK_SIZE), ptrBlockNum, 
-		discUnit = discPtr ! DP_DISC_UNIT, nBlocks = freeList ! FL_FREE_BLKS, 
-		ptrBlocks = freeList ! FL_PTR_BLKS;
-
-	if nBlocks = 0 then {
-		out("Te Jodiste, disc %d is full", discUnit);
-		finish;
+	let freeList = discPtr ! DP_FREE_LIST, blockBuffer = discPtr ! DP_BLOCK_BUFF, 
+		freeBlock, ptrBlockNum, ptrBlock;
+	if freeList ! FL_FREE_BLKS = 0 then {
+		out("We are out of free blocks. Delete some files for space\n");
+		resultis -1;
 	}
-	test ptrBlocks > 0 then {//Using ptr blocks to free blocks
-		ptrBlockNum := freeList ! FL_DATA;//First ptr block in free list
-		readBlockFromDisc(discUnit, ptrBlockNum, ptrBlock);
-		freeBlk := ptrBlock ! 0;//First free block in ptr block
-		shiftBlockBufferUp(1, ptrBlock);
-		writeBlockToDisc(discUnit, ptrBlockNum, ptrBlock);
-		nBlocks -:= 1;
-		if ptrBlock ! 0 = nil then {//Ptr Block now empty
-			ptrBlocks -:= 1;
-			popPtrBlock(freeList, nBlocks, ptrBlocks);
+	test freeList ! FL_PTR_BLKS > 0 then {//1 Level of Ptrs
+		ptrBlock := 2;
+		ptrBlockNum := freeList ! ptrBlock;
+		readBlockFromDisc(discPtr ! DP_DISC_UNIT, ptrBlockNum, blockBuffer);
+		freeBlock := blockBuffer ! 0;//Storing first free block 
+		shiftBlockBufferUp(1, blockBuffer);
+		writeBlockToDisc(discPtr ! DP_DISC_UNIT, ptrBlockNum, blockBuffer);
+		if (blockBuffer ! 0 = nil) then {
+			shiftArrUp(1, freeList + 2, BLOCK_SIZE - 2);
+			freeList ! FL_PTR_BLKS -:= 1;
 			addFreeBlock(discPtr, ptrBlockNum);
 		}
-	} else {//126 or fewer pts to free blocks
-		freeBlk := freeList ! FL_DATA;
-		nBlocks -:= 1;
-		popPtrBlock(freeList, nBlocks, ptrBlocks);
-	}
-	freeList ! FL_FREE_BLKS := nBlocks;//In case ptr block was added back as a free block 
-	freeList ! FL_PTR_BLKS := ptrBlocks;//In case ptr block was added back as a free block
-
-	if ptrBlocks = 1 /\ nBlocks <= 125 then {
-		readBlockFromDisc(discUnit, freeList ! FL_DATA, ptrBlock);//Reading last ptr block
-		for i = 0 to nBlocks - 1 by 1 do {//Writing its ptr after itself in the freeList
-			freeList ! (FL_DATA + 1 + i) := ptrBlock ! i;
+		clearBuffer(blockBuffer);
+		freeList ! FL_FREE_BLKS -:= 1;
+		if freeList ! FL_FREE_BLKS < (BLOCK_SIZE - 2) then {
+			out("Should convert to 0 levels of ptrs to free blocks\n");
 		}
-		clearBuffer(ptrBlock);//Clearing block
-		writeBlockToDisc(discUnit, freeList ! FL_DATA, ptrBlock);//Writing back
-		freeList ! FL_FREE_BLKS := nBlocks + 1;
-		freeList ! FL_PTR_BLKS := 0;
+	} else {//Is last block with ptrs
+		freeBlock := freeList ! 2;
+		shiftArrUp(1, freeList + 2, BLOCK_SIZE - 2);
+		freeList ! FL_FREE_BLKS -:= 1;
 	}
-	discPtr ! DP_SUPER_BLOCK ! SB_FREE_BLKS -:= 1;
-	freeList ! FL_FREE_BLKS := nBlocks;
-	freeList ! FL_PTR_BLKS := ptrBlocks;
-	resultis freeBlk;
+	resultis freeBlock;
 }
 
 let listRootDir(rootDirBlock, level, discUnit) be {
@@ -541,7 +510,7 @@ let addToRootDir(discPtr, fileEntry) be {
 				if entryBlock ! (BLOCK_SIZE - FE_SIZE) /= nil then loop;//No space for entry
 				for j = 0 to BLOCK_SIZE - 1 by FE_SIZE do {//Space in this block for an entry
 					if entryBlock ! j = nil then {//insert here
-						memcpy(entryBlock + j, fileEntry, FE_SIZE_BYTES);
+						veccpy(entryBlock + j, fileEntry, FE_SIZE);
 						writeBlockToDisc(discUnit, rootDirBlock ! i, entryBlock);
 						rootDir ! RD_ENTRIES +:= 1;
 						return;
@@ -549,7 +518,6 @@ let addToRootDir(discPtr, fileEntry) be {
 				}
 			} else {//All previous blocks are full, must make ptr block
 				rootDirBlock ! i := getFreeBlock(discPtr);
-				readBlockFromDisc(discUnit, rootDirBlock ! i, entryBlock);
 				clearBuffer(entryBlock);
 				memcpy(entryBlock, fileEntry, FE_SIZE_BYTES);//First entry in block
 				writeBlockToDisc(discUnit, rootDirBlock ! i, entryBlock);
@@ -565,6 +533,7 @@ let addToRootDir(discPtr, fileEntry) be {
 				return;
 			}
 		} //rootDirBlock full, must use level of ptrs
+		out("Jumping to level 1\n");
 		veccpy(entryBlock, rootDirBlock, BLOCK_SIZE);
 		clearBuffer(rootDirBlock);
 		rootDirBlock ! 0 := getFreeBlock(discPtr);
@@ -575,7 +544,8 @@ let addToRootDir(discPtr, fileEntry) be {
 		writeBlockToDisc(discUnit, rootDirBlock ! 1, entryBlock);
 		writeBlockToDisc(discUnit, RD_BLOCK_NUMBER, rootDirBlock);
 		readBlockFromDisc(discUnit, RD_BLOCK_NUMBER, discPtr ! DP_RD_BLOCK);
-		discPtr ! DP_ROOT_DIR ! RD_LEVELS +:= 1;
+		rootDir ! RD_LEVELS := 1;
+		rootDir ! RD_ENTRIES +:= 1;
 	} else {
 		out("We have reached a second level of ptrs and are not ready for this shit\n");
 		finish;
@@ -633,6 +603,7 @@ let getWrite(filePtr) be {
 let getLevel(filePtr) be {
 	resultis (filePtr ! OF_LEVEL) bitand GETLVL;
 }
+
 
 let createNewFile(discPtr, fileName) be {
 	let fileBlockNum, rootDirSlot, fileBlkBuff = vec(BLOCK_SIZE),
@@ -742,12 +713,6 @@ let printFileBlockData(discPtr, fileName) be {
 
 let closeFile(discPtr, openFileIndex) be {
 	let openFilePtr = discPtr ! DP_OPEN_LIST ! openFileIndex, buff = openFilePtr ! OF_BLK_BUFF;
-	removeFromOpenList(discPtr ! DP_OPEN_LIST, openFileIndex);
-	if openFilePtr ! OF_MOD_BYTE > openFilePtr ! OF_BYTE_SIZE then 
-	{	openFilePtr ! OF_BYTE_SIZE := openFilePtr ! OF_MOD_BYTE;
-		out("Well, for some reason, OF_MOD_BYTE > OF_BYTE_SIZE...\n");
-		out("%d > %d ???\n", openFilePtr ! OF_MOD_BYTE, openFilePtr ! OF_BYTE_SIZE);
-	}
 	if buff /= openFilePtr then {
 		writeBlockToDisc(discPtr ! DP_DISC_UNIT, openFilePtr ! OF_MOD_BLOCK, 
 			openFilePtr ! OF_BLK_BUFF);//Writing back to disc
@@ -761,10 +726,11 @@ let closeFile(discPtr, openFileIndex) be {
 	openFilePtr ! OF_BLK_BUFF := nil;
 	openFilePtr ! OF_BLK_OFFSET := nil;
 	freevec(openFilePtr);
+	removeFromOpenList(discPtr ! DP_OPEN_LIST, openFileIndex);
 }
 
 let closeAllFiles(discPtr) be {
-	for i = 1 to discPtr ! DP_OPEN_LIST ! OFL_ENTRIES do 
+	for i = 0 to discPtr ! DP_OPEN_LIST ! OFL_ENTRIES - 1 do 
 		closeFile(discPtr, 1);
 }
 
@@ -912,14 +878,18 @@ let dismountDisc(discPtr) be {//discPtr is basically superblock
 			discPtr ! DP_DISC_SIZE, sizeFromCheck);
 		finish;
 	}
+	out("1 ");
 	closeAllFiles(discPtr ! DP_OPEN_LIST);
+	out("2 ");
 	clearBuffer(discPtr ! DP_BLOCK_BUFF);
 	memcpy(discPtr ! DP_BLOCK_BUFF, discPtr ! DP_SUPER_BLOCK, SB_SIZE_BYTES);
 	memcpy(discPtr ! DP_BLOCK_BUFF + SB_ROOT_DIR_INFO, discPtr ! DP_ROOT_DIR, RD_SIZE_BYTES);
 	writeSBtoDisc(discPtr ! DP_DISC_UNIT, discPtr ! DP_DISC_SIZE, discPtr ! DP_BLOCK_BUFF);
+	out("3 ");
 	writeRDtoDisc(discPtr ! DP_DISC_UNIT, discPtr ! DP_DISC_SIZE, discPtr ! DP_RD_BLOCK);
+	out("4 ");
 	writeFLtoDisc(discPtr ! DP_DISC_UNIT, discPtr ! DP_DISC_SIZE, discPtr ! DP_FREE_LIST);
-	
+	out("5 \n");
 	freevec(discPtr ! DP_SUPER_BLOCK);
 	freevec(discPtr ! DP_ROOT_DIR);
 	freevec(discPtr ! DP_RD_BLOCK);
@@ -933,12 +903,12 @@ let writeByte(discPtr, filePtr, input) be {
 	let isBackSpace, dataBlks = filePtr ! OF_DATA_BLKS, firstByte, lastByte, tmp;
 	isBackSpace := (input = '\b' \/ input = 127) -> true, false;
 	firstByte := (dataBlks > 0) -> 0, OF_START_BYTE;
-	lastByte := BYTES_PER_BLOCK - 1;
+	lastByte := BYTES_PER_BLOCK;
 	test isBackSpace /= true then {
 		if filePtr ! OF_BLK_OFFSET = lastByte then {
 			test dataBlks > 0 then {       // LVL1 - Assuming level 1 pointers for now
 				writeBlockToDisc(discPtr ! DP_DISC_UNIT, filePtr ! OF_MOD_BLOCK,
-					 filePtr ! OF_BLK_BUFF);
+					 filePtr + OF_BLK_BUFF);
 				tmp := nil;
 				for i = OF_DATA_START to BLOCK_SIZE - 1 do {
 					if filePtr ! i = filePtr ! OF_MOD_BLOCK then {
@@ -961,6 +931,7 @@ let writeByte(discPtr, filePtr, input) be {
 				filePtr ! OF_BLK_OFFSET := 0; // tells what byte of the block you are in
 			} 
 			else {//Filling first block(file block) - where write block to disk should go
+				printHeap(heap, heapSize);
 				filePtr ! OF_BLK_BUFF := newvec(BLOCK_SIZE);
 				veccpy(filePtr ! OF_BLK_BUFF, filePtr + OF_DATA_START, BLOCK_SIZE - OF_DATA_START);
 				filePtr ! OF_DATA_START := getFreeBlock(discPtr);
@@ -969,6 +940,7 @@ let writeByte(discPtr, filePtr, input) be {
 				filePtr ! OF_MOD_BLOCK := filePtr ! OF_DATA_START;
 				filePtr ! OF_MOD_BYTE := BYTES_PER_BLOCK - OF_START_BYTE;
 				filePtr ! OF_BLK_OFFSET := filePtr ! OF_MOD_BYTE;//Since in first block of level 1
+				printHeap(heap, heapSize);
 			}
 		}
 		out("\nOffset: %d | BlkAddr: %d | Input: %c\n", filePtr ! OF_BLK_OFFSET, 
@@ -1004,6 +976,7 @@ let writeByte(discPtr, filePtr, input) be {
 		}
 		filePtr ! OF_MOD_BYTE -:= 1;
 	}
+	printHeap(heap, heapSize);
 }
 
 let eof(filePtr) be {
@@ -1229,9 +1202,10 @@ let start() be {
 			filePtr := discPtr ! DP_OPEN_LIST ! fileIndex;
 			out("How many bytes are you writing to the file?\n");
 			inputSize := inno();
+			out("We made it\n");
 			clearBuffer(input);
 			if inputSize > BYTES_PER_BLOCK then {
-				for i = 0 to inputSize / BYTES_PER_BLOCK - 1 do {
+				for i = 0 to (inputSize / BYTES_PER_BLOCK) do {
 					for j = 0 to BYTES_PER_BLOCK - 1 do 
 						byte j of input := inch2();
 					if fwrite(discPtr, filePtr, input, BLOCK_SIZE) /= BYTES_PER_BLOCK then {
@@ -1240,6 +1214,7 @@ let start() be {
 					}
 				}
 			}
+			out("We made it\n");
 			inputOffset := 0;
 			clearBuffer(input);
 			for i = 0 to inputSize rem BYTES_PER_BLOCK - 1 do {
@@ -1247,10 +1222,12 @@ let start() be {
 				inputOffset +:= 1;
 				if (inputOffset > inputSize) then break;
 			}
+			out("We made it\n");
 			if fwrite(discPtr, filePtr, input, inputOffset) /= inputOffset then {
 				out("Problem writing to file! %s\n", filePtr + OF_NAME);
 				loop;
 			}
+			out("We made it\n");
 		} else test strcasecmp(input, rfromf) = 0 then {
 			if checkMountedDisc(discPtr) /= mounted then loop;
 			out("What file do you want to read from?\n");
