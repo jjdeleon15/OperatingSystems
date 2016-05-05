@@ -1,0 +1,12 @@
+F timer_handler 0
+F start_process 0
+F make_pcb 0
+F keyboard_handler 0
+F minch 0
+F kbbackch 0
+F kbbremove 0
+F kbbunadd 0
+F kbbadd 0
+F set_timer 0
+F enable_ints 0
+L step3
