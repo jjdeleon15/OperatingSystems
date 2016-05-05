@@ -600,7 +600,7 @@ let myFreeVec(entryPtr) be {
       if (entryPtr ! 0) /= 0 then {
         printHeap(HEAP_PTR, HEAP_CAP);
         out("Invalid ptr passed: %d\n", entryPtr);
-        finish
+        // finish
       }
   }
 
